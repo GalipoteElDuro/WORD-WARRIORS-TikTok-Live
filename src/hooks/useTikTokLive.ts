@@ -1,8 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { User, Rank, TikTokEvent } from '../types';
-import { GoogleGenAI, Type } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const MOCK_AVATARS = [
   'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
@@ -42,36 +39,42 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
   };
 
   const generateLevelData = async () => {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      console.error("OPENROUTER_API_KEY no está configurada. Crea un archivo .env.local con OPENROUTER_API_KEY='sk-or-v1-tu-key'");
+      throw new Error("API key no configurada");
+    }
+
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Actúa como un diseñador de niveles experto para el juego '4 fotos 1 palabra'. 
-        1. Elige una palabra secreta (sustantivo o concepto común en español).
-        2. Elige 4 conceptos visuales DIFERENTES, ÚNICOS y VARIADOS que representen pistas indirectas de la palabra.
-        Responde estrictamente en JSON con los campos:
-        'word': la palabra secreta (en mayúsculas, sin acentos).
-        'hint': una pista de texto muy breve.
-        'clues': un array con los 4 nombres de los conceptos visuales elegidos (ej. si la palabra es 'Fútbol', pistas podrían ser: 'estadio', 'silbato', 'guantes', 'cesped').`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              word: { type: Type.STRING },
-              hint: { type: Type.STRING },
-              clues: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                minItems: 4,
-                maxItems: 4
-              }
-            },
-            required: ["word", "hint", "clues"]
-          }
-        }
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': window.location.origin,
+          'X-OpenRouter-Title': 'Word Warriors TikTok Live',
+        },
+        body: JSON.stringify({
+          model: process.env.OPENROUTER_MODEL || 'openrouter/free',
+          messages: [
+            {
+              role: 'user',
+              content: `Actúa como un diseñador de niveles experto para el juego '4 fotos 1 palabra'. 
+              1. Elige una palabra secreta (sustantivo o concepto común en español).
+              2. Elige 4 conceptos visuales DIFERENTES, ÚNICOS y VARIADOS que representen pistas indirectas de la palabra.
+              Responde estrictamente en JSON con los campos:
+              'word': la palabra secreta (en mayúsculas, sin acentos).
+              'hint': una pista de texto muy breve.
+              'clues': un array con los 4 nombres de los conceptos visuales elegidos (ej. si la palabra es 'Fútbol', pistas podrían ser: 'estadio', 'silbato', 'guantes', 'cesped').`
+            }
+          ],
+          response_format: { type: 'json_object' }
+        })
       });
 
-      const data = JSON.parse(response.text || '{}');
+      const result = await response.json();
+      const content = result.choices?.[0]?.message?.content || '{}';
+      const data = JSON.parse(content);
       const word = data.word?.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") || "ERROR";
       const hint = data.hint || "4 imágenes, 1 palabra";
       const clues = data.clues || ["pista1", "pista2", "pista3", "pista4"];
