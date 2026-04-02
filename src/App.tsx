@@ -22,8 +22,9 @@ export default function App() {
     revealedIndices,
     lastComment,
     lastWinner,
-    isLoadingNext
-  } = useTikTokLive(isLoggedIn);
+    isLoadingNext,
+    connectionStatus,
+  } = useTikTokLive(isLoggedIn, tiktokUsername);
 
   const prevWordRef = useRef(currentWord.word);
 
@@ -53,7 +54,18 @@ export default function App() {
       {/* Main Game Area */}
       <div className="flex-1 flex flex-col relative">
         <div className="absolute top-4 left-4 z-50 pointer-events-none flex gap-2">
-          <div className="px-4 py-2 rounded-xl backdrop-blur-xl border border-white/10 bg-white/5 text-white/50 flex items-center gap-2 shadow-xl">
+          <div className={`px-4 py-2 rounded-xl backdrop-blur-xl border flex items-center gap-2 shadow-xl ${
+            connectionStatus === 'connected' 
+              ? 'border-green-500/30 bg-green-500/10 text-green-400' 
+              : connectionStatus === 'connecting'
+              ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'
+              : 'border-red-500/30 bg-red-500/10 text-red-400'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${
+              connectionStatus === 'connected' ? 'bg-green-400 animate-pulse' 
+              : connectionStatus === 'connecting' ? 'bg-yellow-400 animate-pulse'
+              : 'bg-red-400'
+            }`} />
             <span className="text-[10px] font-black uppercase tracking-widest">Live:</span>
             <span className="text-xs font-bold text-white">@{tiktokUsername}</span>
           </div>

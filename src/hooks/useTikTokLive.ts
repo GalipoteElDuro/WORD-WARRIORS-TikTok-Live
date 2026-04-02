@@ -1,12 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
-import { User, Rank, TikTokEvent } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { User, Rank } from '../types';
 
-const MOCK_AVATARS = [
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Morty',
-  'https://api.dicebear.com/7.x/avataaars/svg?seed=Summer',
-];
+const WS_URL = 'ws://localhost:3001';
 
 const INITIAL_LEVEL = {
   word: 'PLAYA',
@@ -19,7 +14,7 @@ const INITIAL_LEVEL = {
   ]
 };
 
-export function useTikTokLive(isLoggedIn: boolean = true) {
+export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string = '') {
   const [users, setUsers] = useState<User[]>([]);
   const [currentLevel, setCurrentLevel] = useState(INITIAL_LEVEL);
   const [nextLevel, setNextLevel] = useState<any>(null);
@@ -31,6 +26,10 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
   const [lastComment, setLastComment] = useState<{username: string, text: string} | null>(null);
   const [lastWinner, setLastWinner] = useState<{username: string, avatar?: string} | null>(null);
   const [isLoadingNext, setIsLoadingNext] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const handleEventRef = useRef<(event: any) => void>(() => {});
 
   const getRank = (score: number): Rank => {
     if (score >= 5000) return Rank.LEGEND;
@@ -41,7 +40,7 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
   const generateLevelData = async () => {
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      console.error("OPENROUTER_API_KEY no está configurada. Crea un archivo .env.local con OPENROUTER_API_KEY='sk-or-v1-tu-key'");
+      console.error("OPENROUTER_API_KEY no configurada");
       throw new Error("API key no configurada");
     }
 
@@ -80,15 +79,13 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
       const clues = data.clues || ["pista1", "pista2", "pista3", "pista4"];
       const levelId = Math.random().toString(36).substring(7);
 
-      // Use a high-quality image service with unique keywords and seeds to GUARANTEE variety
       const finalImages = clues.map((clue: string, i: number) => {
-        // We use Unsplash Source or LoremFlickr with unique seeds and keywords
         return `https://loremflickr.com/800/600/${encodeURIComponent(clue)}?lock=${levelId}${i}`;
       });
 
       return { word, hint, images: finalImages, levelId };
     } catch (error) {
-      console.error("Error generating level data:", error);
+      console.error("Error generando nivel:", error);
       const fallbackWord = "VIAJE";
       const levelId = Math.random().toString(36).substring(7);
       return {
@@ -114,21 +111,15 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
       const level = await generateLevelData();
       setCurrentLevel(level);
       setIsLoadingNext(false);
-      // Pre-fetch the next one
       const next = await generateLevelData();
       setNextLevel(next);
     } else {
-      // Increment level number
       setLevelNumber(prev => prev + 1);
-      
-      // If we have a pre-fetched level, use it
       if (nextLevel) {
         setCurrentLevel(nextLevel);
         setRevealedIndices([]);
-        // Fetch the next one in background
         generateLevelData().then(setNextLevel);
       } else {
-        // Fallback if pre-fetch isn't ready
         setIsLoadingNext(true);
         const level = await generateLevelData();
         setCurrentLevel(level);
@@ -139,8 +130,9 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
     }
   };
 
-  const handleEvent = useCallback((event: TikTokEvent) => {
+  const handleEvent = useCallback((event: any) => {
     if (!isLoggedIn || isLoadingNext) return;
+
     if (event.type === 'COMMENT') {
       setLastComment({ username: event.username, text: event.text });
       
@@ -153,12 +145,12 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
           currentUser = {
             id: Math.random().toString(),
             username: event.username,
-            avatar: event.avatar,
+            avatar: event.avatar || '',
             score: 0,
-            scoreDay: Math.floor(Math.random() * 500),
-            scoreWeek: Math.floor(Math.random() * 2000),
-            scoreMonth: Math.floor(Math.random() * 5000),
-            scoreAllTime: Math.floor(Math.random() * 10000),
+            scoreDay: 0,
+            scoreWeek: 0,
+            scoreMonth: 0,
+            scoreAllTime: 0,
             rank: Rank.RECRUIT,
           };
           newUsers.push(currentUser);
@@ -166,7 +158,8 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
           currentUser = { ...newUsers[userIndex] };
         }
 
-        const isCorrect = event.text.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === currentLevel.word;
+        const normalizedText = event.text.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const isCorrect = normalizedText === currentLevel.word;
         
         if (isCorrect) {
           currentUser.score += 100;
@@ -183,10 +176,9 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
           fetchNextLevel();
         }
 
-        if (userIndex === -1) {
-          newUsers[newUsers.length - 1] = currentUser;
-        } else {
-          newUsers[userIndex] = currentUser;
+        const idx = newUsers.findIndex(u => u.username === event.username);
+        if (idx !== -1) {
+          newUsers[idx] = currentUser;
         }
 
         return newUsers.sort((a, b) => b.score - a.score);
@@ -200,7 +192,8 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
         return newCount;
       });
     } else if (event.type === 'GIFT') {
-      if (event.giftName === 'Ice') {
+      const giftName = event.giftName || '';
+      if (giftName.toLowerCase().includes('ice') || giftName.toLowerCase().includes('hielo')) {
         setIsFrozen(true);
         setTimeout(() => setIsFrozen(false), 5000);
       } else {
@@ -215,8 +208,37 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
           return [...prev, randomIndex];
         });
       }
+    } else if (event.type === 'FOLLOW') {
+      setUsers(prev => {
+        const idx = prev.findIndex(u => u.username === event.username);
+        if (idx !== -1) {
+          const updated = { ...prev[idx] };
+          updated.score += 50;
+          updated.lastAction = '¡SIGUIÓ!';
+          const newUsers = [...prev];
+          newUsers[idx] = updated;
+          return newUsers.sort((a, b) => b.score - a.score);
+        }
+        return prev;
+      });
+    } else if (event.type === 'SHARE') {
+      setUsers(prev => {
+        const idx = prev.findIndex(u => u.username === event.username);
+        if (idx !== -1) {
+          const updated = { ...prev[idx] };
+          updated.score += 25;
+          updated.lastAction = '¡COMPARTIÓ!';
+          const newUsers = [...prev];
+          newUsers[idx] = updated;
+          return newUsers.sort((a, b) => b.score - a.score);
+        }
+        return prev;
+      });
     }
-  }, [currentLevel, isLoggedIn, isLoadingNext, nextLevel]);
+  }, [currentLevel, isLoggedIn, isLoadingNext, nextLevel, isHintRevealed]);
+
+  // Keep handleEvent ref updated
+  handleEventRef.current = handleEvent;
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -224,44 +246,68 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
     }
   }, [isLoggedIn]);
 
+  // WebSocket connection to backend
   useEffect(() => {
-    if (!isLoggedIn || isLoadingNext) return;
-    const interval = setInterval(() => {
-      const randomUser = `Usuario_${Math.floor(Math.random() * 100)}`;
-      const randomAvatar = MOCK_AVATARS[Math.floor(Math.random() * MOCK_AVATARS.length)];
-      
-      const isLucky = Math.random() > 0.98;
-      const text = isLucky ? currentLevel.word : 'ERROR';
+    if (!isLoggedIn || !tiktokUsername) return;
 
-      handleEvent({
-        type: 'COMMENT',
-        username: randomUser,
-        avatar: randomAvatar,
-        text: text
-      });
-    }, 2000);
+    let shouldReconnect = true;
 
-    const giftInterval = setInterval(() => {
-      if (Math.random() > 0.8) {
-        handleEvent({
-          type: 'GIFT',
-          username: `Donador_${Math.floor(Math.random() * 10)}`,
-          giftName: 'Rosa'
-        });
-      }
-      
-      // Simulate likes
-      handleEvent({
-        type: 'LIKE',
-        count: Math.floor(Math.random() * 10) + 5
-      });
-    }, 4000);
+    function connect() {
+      setConnectionStatus('connecting');
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!shouldReconnect) {
+          ws.close();
+          return;
+        }
+        console.log('[WS] Conectado al backend');
+        ws.send(JSON.stringify({ type: 'CONNECT', username: tiktokUsername }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'TIKTOK_STATUS') {
+            setConnectionStatus(data.status === 'connected' ? 'connected' : 'disconnected');
+          } else if (data.type === 'TIKTOK_ERROR') {
+            console.error('[TikTok] Error:', data.error);
+            setConnectionStatus('disconnected');
+          } else if (data.type === 'STREAM_END') {
+            setConnectionStatus('disconnected');
+          } else {
+            handleEventRef.current(data);
+          }
+        } catch (e) {
+          console.error('[WS] Error parseando mensaje:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('[WS] Desconectado del backend');
+        setConnectionStatus('disconnected');
+        wsRef.current = null;
+      };
+
+      ws.onerror = () => {
+        setConnectionStatus('disconnected');
+      };
+
+      return ws;
+    }
+
+    const ws = connect();
 
     return () => {
-      clearInterval(interval);
-      clearInterval(giftInterval);
+      shouldReconnect = false;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      wsRef.current = null;
     };
-  }, [handleEvent, currentLevel, isLoggedIn, isLoadingNext]);
+  }, [isLoggedIn, tiktokUsername]);
 
   return {
     users,
@@ -273,6 +319,7 @@ export function useTikTokLive(isLoggedIn: boolean = true) {
     revealedIndices,
     lastComment,
     lastWinner,
-    isLoadingNext
+    isLoadingNext,
+    connectionStatus,
   };
 }
