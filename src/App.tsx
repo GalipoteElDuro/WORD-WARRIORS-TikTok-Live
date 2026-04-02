@@ -171,18 +171,27 @@ export default function App() {
                   <Crown className="w-16 h-16 text-yellow-500 fill-current" />
                 </motion.div>
                 <span className="text-yellow-500 font-black tracking-[0.3em] uppercase text-xs mb-2">¡ACERTÓ LA PALABRA!</span>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col items-center gap-2">
                   {lastWinner.avatar && (
-                    <img src={lastWinner.avatar} className="w-12 h-12 rounded-full border-2 border-yellow-500 shadow-lg" referrerPolicy="no-referrer" />
+                    <motion.img 
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                      src={lastWinner.avatar} 
+                      className="w-24 h-24 rounded-full border-4 border-yellow-500 shadow-[0_0_40px_rgba(234,179,8,0.4)] bg-black/40 mb-2" 
+                      referrerPolicy="no-referrer" 
+                    />
                   )}
-                  <div className="flex flex-col items-center">
-                    <h2 className="text-5xl font-black text-white italic tracking-tighter drop-shadow-2xl">
+                  <div className="flex flex-col items-center text-center">
+                    <h2 className="text-6xl font-black text-white italic tracking-tighter drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] leading-[0.9]">
                       {lastWinner.username}
                     </h2>
                     {lastWinner.word && (
-                      <span className="text-2xl font-black text-yellow-400 tracking-[0.2em] mt-1">
-                        {lastWinner.word}
-                      </span>
+                      <div className="mt-4 px-8 py-1.5 bg-yellow-500 rounded-full shadow-2xl transform -rotate-1">
+                        <span className="text-2xl font-black text-black tracking-[0.2em] uppercase">
+                          {lastWinner.word}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>

@@ -91,7 +91,14 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
           messages: [
             {
               role: 'user',
-              content: `Elige una palabra secreta en español (sustantivo común, 4-8 letras) y 4 conceptos visuales para un juego tipo '4 fotos 1 palabra'. Responde solo JSON: {'word', 'hint', 'clues' (array de 4 strings)}`
+              content: `Elige una palabra secreta en español (sustantivo común, 4-8 letras) para un juego tipo '4 fotos 1 palabra'.
+              Responde con este JSON exacto:
+              {
+                "word": "PALABRA_EN_ESPAÑOL",
+                "hint": "Una pista breve en español",
+                "clues": ["term1_in_english", "term2_in_english", "term3_in_english", "term4_in_english"]
+              }
+              Importante: Los 'clues' deben ser términos de búsqueda visuales precisos en INGLÉS para obtener las mejores imágenes.`
             }
           ],
           response_format: { type: 'json_object' }
@@ -101,16 +108,18 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
       const result = await response.json();
       const content = result.choices?.[0]?.message?.content || '{}';
       const data = JSON.parse(content);
-      const word = data.word?.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") || "ERROR";
+      const word = data.word?.toUpperCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "") || "ERROR";
       const hint = data.hint || "4 imágenes, 1 palabra";
-      const clues = data.clues || ["pista1", "pista2", "pista3", "pista4"];
-      const levelId = Math.random().toString(36).substring(7);
+      const clues = data.clues || ["nature", "city", "object", "abstract"];
+      const seed = Math.floor(Math.random() * 1000000);
 
       const finalImages = clues.map((clue: string, i: number) => {
-        return `https://loremflickr.com/800/600/${encodeURIComponent(clue)}?lock=${levelId}${i}`;
+        // Limpiamos el término de búsqueda por si acaso
+        const cleanClue = clue.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return `https://loremflickr.com/800/600/${cleanClue}?lock=${seed + i}`;
       });
 
-      return { word, hint, images: finalImages, levelId };
+      return { word, hint, images: finalImages, levelId: seed.toString() };
     } catch (e) {
       console.error("Error pre-generando:", e);
       return null;
