@@ -1,16 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { motion, AnimatePresence } from 'motion/react';
-import { MessageSquare, Heart, Crown } from 'lucide-react';
+import { MessageSquare, Heart, Crown, Settings as SettingsIcon } from 'lucide-react';
 import { useTikTokLive } from './hooks/useTikTokLive';
 import Leaderboard from './components/Leaderboard';
 import GameCanvas from './components/GameCanvas';
 import StatusBanner from './components/StatusBanner';
 import LoginMenu from './components/LoginMenu';
+import SettingsModal from './components/SettingsModal';
+import { GameSettings } from './types';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [tiktokUsername, setTiktokUsername] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  
+  const [settings, setSettings] = useState<GameSettings>(() => {
+    const saved = localStorage.getItem('game_settings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Error loading settings:', e);
+      }
+    }
+    return {
+      likesGoal: 500,
+      giftActions: [
+        { id: '1', name: 'Rosa', action: 'reveal' },
+        { id: '2', name: 'Ice Cube', action: 'freeze' },
+        { id: '3', name: 'Hielo', action: 'freeze' }
+      ]
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('game_settings', JSON.stringify(settings));
+  }, [settings]);
 
   const { 
     users, 
@@ -24,7 +50,8 @@ export default function App() {
     lastWinner,
     isLoadingNext,
     connectionStatus,
-  } = useTikTokLive(isLoggedIn, tiktokUsername);
+    disconnect
+  } = useTikTokLive(isLoggedIn, tiktokUsername, settings);
 
   const prevWordRef = useRef(currentWord.word);
 
@@ -45,6 +72,12 @@ export default function App() {
     setIsLoggedIn(true);
   };
 
+  const handleDisconnect = () => {
+    disconnect();
+    setIsLoggedIn(false);
+    setIsSettingsOpen(false);
+  };
+
   if (!isLoggedIn) {
     return <LoginMenu onLogin={handleLogin} />;
   }
@@ -53,7 +86,14 @@ export default function App() {
     <div className="h-screen w-screen flex bg-black relative overflow-hidden">
       {/* Main Game Area */}
       <div className="flex-1 flex flex-col relative">
-        <div className="absolute top-4 left-4 z-50 pointer-events-none flex gap-2">
+        <div className="absolute top-4 left-4 z-50 flex gap-2">
+          <button 
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-3 rounded-xl backdrop-blur-xl border border-white/10 bg-white/5 text-white hover:bg-white/10 transition-all active:scale-95 shadow-xl pointer-events-auto"
+          >
+            <SettingsIcon className="w-4 h-4" />
+          </button>
+
           <div className={`px-4 py-2 rounded-xl backdrop-blur-xl border flex items-center gap-2 shadow-xl ${
             connectionStatus === 'connected' 
               ? 'border-green-500/30 bg-green-500/10 text-green-400' 
@@ -81,13 +121,13 @@ export default function App() {
                 <motion.div 
                   className="h-full bg-pink-500"
                   initial={{ width: 0 }}
-                  animate={{ width: `${Math.min((likesCount / 500) * 100, 100)}%` }}
+                  animate={{ width: `${Math.min((likesCount / settings.likesGoal) * 100, 100)}%` }}
                 />
               </div>
             </div>
             <div className="flex items-center gap-1">
               <Heart className="w-3 h-3 fill-current" />
-              <span className="text-xs font-bold text-white">{likesCount}/500</span>
+              <span className="text-xs font-bold text-white">{likesCount}/{settings.likesGoal}</span>
             </div>
           </div>
         </div>
@@ -135,9 +175,16 @@ export default function App() {
                   {lastWinner.avatar && (
                     <img src={lastWinner.avatar} className="w-12 h-12 rounded-full border-2 border-yellow-500 shadow-lg" referrerPolicy="no-referrer" />
                   )}
-                  <h2 className="text-5xl font-black text-white italic tracking-tighter drop-shadow-2xl">
-                    {lastWinner.username}
-                  </h2>
+                  <div className="flex flex-col items-center">
+                    <h2 className="text-5xl font-black text-white italic tracking-tighter drop-shadow-2xl">
+                      {lastWinner.username}
+                    </h2>
+                    {lastWinner.word && (
+                      <span className="text-2xl font-black text-yellow-400 tracking-[0.2em] mt-1">
+                        {lastWinner.word}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -234,6 +281,15 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <SettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSave={setSettings}
+        onDisconnect={handleDisconnect}
+        username={tiktokUsername}
+      />
     </div>
   );
 }

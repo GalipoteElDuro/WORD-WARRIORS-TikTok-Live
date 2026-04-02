@@ -34,3 +34,15 @@ export type TikTokEvent =
   | { type: 'COMMENT'; username: string; text: string; avatar: string }
   | { type: 'LIKE'; count: number }
   | { type: 'GIFT'; username: string; giftName: string };
+
+export interface GiftAction {
+  id: string;
+  name: string;
+  action: 'reveal' | 'freeze';
+}
+
+export interface GameSettings {
+  likesGoal: number;
+  giftActions: GiftAction[];
+}
+

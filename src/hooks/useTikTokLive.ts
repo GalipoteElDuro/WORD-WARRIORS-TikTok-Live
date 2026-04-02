@@ -1,22 +1,49 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { User, Rank } from '../types';
+import { User, Rank, GameSettings } from '../types';
 
 const WS_URL = 'ws://localhost:3001';
 
-const INITIAL_LEVEL = {
-  word: 'PLAYA',
-  hint: '4 imágenes, 1 palabra',
-  images: [
-    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1519046904884-53103b34b206?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1473119115634-941d078ecb65?auto=format&fit=crop&w=800&q=80',
-    'https://images.unsplash.com/photo-1506929199175-60903ee8f5a9?auto=format&fit=crop&w=800&q=80',
-  ]
+const DEFAULT_SETTINGS: GameSettings = {
+  likesGoal: 500,
+  giftActions: []
 };
 
-export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string = '') {
+const FALLBACK_LEVELS = [
+  {
+    word: 'PLAYA',
+    hint: '4 imágenes, 1 palabra',
+    images: [
+      'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1519046904884-53103b34b206?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1473119115634-941d078ecb65?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1506929199175-60903ee8f5a9?auto=format&fit=crop&w=400&q=80',
+    ]
+  },
+  {
+    word: 'CAFE',
+    hint: 'Bebida despertadora',
+    images: [
+      'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1497933321027-94483effe30d?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1511920170033-f8396924c348?auto=format&fit=crop&w=400&q=80',
+    ]
+  },
+  {
+    word: 'MUSICA',
+    hint: 'Arte de los sonidos',
+    images: [
+      'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1514525253361-bee2438cb5ca?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=400&q=80',
+      'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?auto=format&fit=crop&w=400&q=80',
+    ]
+  }
+];
+
+export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string = '', settings: GameSettings = DEFAULT_SETTINGS) {
   const [users, setUsers] = useState<User[]>([]);
-  const [currentLevel, setCurrentLevel] = useState(INITIAL_LEVEL);
+  const [currentLevel, setCurrentLevel] = useState(FALLBACK_LEVELS[0]);
   const [nextLevel, setNextLevel] = useState<any>(null);
   const [levelNumber, setLevelNumber] = useState(1);
   const [likesCount, setLikesCount] = useState(0);
@@ -24,12 +51,18 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
   const [isFrozen, setIsFrozen] = useState(false);
   const [revealedIndices, setRevealedIndices] = useState<number[]>([]);
   const [lastComment, setLastComment] = useState<{username: string, text: string} | null>(null);
-  const [lastWinner, setLastWinner] = useState<{username: string, avatar?: string} | null>(null);
+  const [lastWinner, setLastWinner] = useState<{username: string, avatar?: string, word?: string} | null>(null);
   const [isLoadingNext, setIsLoadingNext] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
 
   const wsRef = useRef<WebSocket | null>(null);
   const handleEventRef = useRef<(event: any) => void>(() => {});
+  const settingsRef = useRef(settings);
+  const isPreloadingRef = useRef(false);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   const getRank = (score: number): Rank => {
     if (score >= 5000) return Rank.LEGEND;
@@ -41,7 +74,7 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
       console.error("OPENROUTER_API_KEY no configurada");
-      throw new Error("API key no configurada");
+      return null;
     }
 
     try {
@@ -58,13 +91,7 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
           messages: [
             {
               role: 'user',
-              content: `Actúa como un diseñador de niveles experto para el juego '4 fotos 1 palabra'. 
-              1. Elige una palabra secreta (sustantivo o concepto común en español).
-              2. Elige 4 conceptos visuales DIFERENTES, ÚNICOS y VARIADOS que representen pistas indirectas de la palabra.
-              Responde estrictamente en JSON con los campos:
-              'word': la palabra secreta (en mayúsculas, sin acentos).
-              'hint': una pista de texto muy breve.
-              'clues': un array con los 4 nombres de los conceptos visuales elegidos (ej. si la palabra es 'Fútbol', pistas podrían ser: 'estadio', 'silbato', 'guantes', 'cesped').`
+              content: `Elige una palabra secreta en español (sustantivo común, 4-8 letras) y 4 conceptos visuales para un juego tipo '4 fotos 1 palabra'. Responde solo JSON: {'word', 'hint', 'clues' (array de 4 strings)}`
             }
           ],
           response_format: { type: 'json_object' }
@@ -84,48 +111,42 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
       });
 
       return { word, hint, images: finalImages, levelId };
-    } catch (error) {
-      console.error("Error generando nivel:", error);
-      const fallbackWord = "VIAJE";
-      const levelId = Math.random().toString(36).substring(7);
-      return {
-        word: fallbackWord,
-        hint: "4 imágenes, 1 palabra",
-        levelId,
-        images: [
-          `https://loremflickr.com/800/600/maleta?lock=${levelId}1`,
-          `https://loremflickr.com/800/600/avion?lock=${levelId}2`,
-          `https://loremflickr.com/800/600/mapa?lock=${levelId}3`,
-          `https://loremflickr.com/800/600/pasaporte?lock=${levelId}4`
-        ]
-      };
+    } catch (e) {
+      console.error("Error pre-generando:", e);
+      return null;
     }
   };
+
+  const preloadNextLevel = async () => {
+    if (isPreloadingRef.current || nextLevel) return;
+    isPreloadingRef.current = true;
+    const level = await generateLevelData();
+    if (level) setNextLevel(level);
+    isPreloadingRef.current = false;
+  };
+
+  useEffect(() => {
+    preloadNextLevel();
+  }, [currentLevel]);
 
   const fetchNextLevel = async (isInitial = false) => {
     setLikesCount(0);
     setIsHintRevealed(false);
+    setRevealedIndices([]);
     
     if (isInitial) {
-      setIsLoadingNext(true);
-      const level = await generateLevelData();
-      setCurrentLevel(level);
-      setIsLoadingNext(false);
-      const next = await generateLevelData();
-      setNextLevel(next);
+      const randomFallback = FALLBACK_LEVELS[Math.floor(Math.random() * FALLBACK_LEVELS.length)];
+      setCurrentLevel(randomFallback);
+      preloadNextLevel();
     } else {
       setLevelNumber(prev => prev + 1);
       if (nextLevel) {
         setCurrentLevel(nextLevel);
-        setRevealedIndices([]);
-        generateLevelData().then(setNextLevel);
+        setNextLevel(null);
       } else {
-        setIsLoadingNext(true);
-        const level = await generateLevelData();
-        setCurrentLevel(level);
-        setRevealedIndices([]);
-        setIsLoadingNext(false);
-        generateLevelData().then(setNextLevel);
+        const randomFallback = FALLBACK_LEVELS[Math.floor(Math.random() * FALLBACK_LEVELS.length)];
+        setCurrentLevel(randomFallback);
+        preloadNextLevel();
       }
     }
   };
@@ -170,7 +191,7 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
           currentUser.rank = getRank(currentUser.scoreAllTime);
           currentUser.lastAction = '¡GANADOR!';
           
-          setLastWinner({ username: event.username, avatar: event.avatar });
+          setLastWinner({ username: event.username, avatar: event.avatar, word: currentLevel.word });
           setTimeout(() => setLastWinner(null), 4000);
 
           fetchNextLevel();
@@ -186,27 +207,34 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
     } else if (event.type === 'LIKE') {
       setLikesCount(prev => {
         const newCount = prev + event.count;
-        if (newCount >= 500 && !isHintRevealed) {
+        if (newCount >= settingsRef.current.likesGoal && !isHintRevealed) {
           setIsHintRevealed(true);
         }
         return newCount;
       });
     } else if (event.type === 'GIFT') {
       const giftName = event.giftName || '';
-      if (giftName.toLowerCase().includes('ice') || giftName.toLowerCase().includes('hielo')) {
-        setIsFrozen(true);
-        setTimeout(() => setIsFrozen(false), 5000);
-      } else {
-        setRevealedIndices(prev => {
-          const word = currentLevel.word;
-          const unrevealed = [];
-          for (let i = 0; i < word.length; i++) {
-            if (!prev.includes(i)) unrevealed.push(i);
-          }
-          if (unrevealed.length === 0) return prev;
-          const randomIndex = unrevealed[Math.floor(Math.random() * unrevealed.length)];
-          return [...prev, randomIndex];
-        });
+      
+      const giftMapping = settingsRef.current.giftActions.find(ga => 
+        ga.name.toLowerCase() === giftName.toLowerCase()
+      );
+
+      if (giftMapping) {
+        if (giftMapping.action === 'freeze') {
+          setIsFrozen(true);
+          setTimeout(() => setIsFrozen(false), 5000);
+        } else if (giftMapping.action === 'reveal') {
+          setRevealedIndices(prev => {
+            const word = currentLevel.word;
+            const unrevealed = [];
+            for (let i = 0; i < word.length; i++) {
+              if (!prev.includes(i)) unrevealed.push(i);
+            }
+            if (unrevealed.length === 0) return prev;
+            const randomIndex = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+            return [...prev, randomIndex];
+          });
+        }
       }
     } else if (event.type === 'FOLLOW') {
       setUsers(prev => {
@@ -235,9 +263,8 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
         return prev;
       });
     }
-  }, [currentLevel, isLoggedIn, isLoadingNext, nextLevel, isHintRevealed]);
+  }, [currentLevel, isLoggedIn, isLoadingNext, nextLevel, isHintRevealed, fetchNextLevel, getRank]);
 
-  // Keep handleEvent ref updated
   handleEventRef.current = handleEvent;
 
   useEffect(() => {
@@ -246,7 +273,6 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
     }
   }, [isLoggedIn]);
 
-  // WebSocket connection to backend
   useEffect(() => {
     if (!isLoggedIn || !tiktokUsername) return;
 
@@ -262,31 +288,25 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
           ws.close();
           return;
         }
-        console.log('[WS] Conectado al backend');
         ws.send(JSON.stringify({ type: 'CONNECT', username: tiktokUsername }));
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          
           if (data.type === 'TIKTOK_STATUS') {
             setConnectionStatus(data.status === 'connected' ? 'connected' : 'disconnected');
           } else if (data.type === 'TIKTOK_ERROR') {
-            console.error('[TikTok] Error:', data.error);
             setConnectionStatus('disconnected');
           } else if (data.type === 'STREAM_END') {
             setConnectionStatus('disconnected');
           } else {
             handleEventRef.current(data);
           }
-        } catch (e) {
-          console.error('[WS] Error parseando mensaje:', e);
-        }
+        } catch {}
       };
 
       ws.onclose = () => {
-        console.log('[WS] Desconectado del backend');
         setConnectionStatus('disconnected');
         wsRef.current = null;
       };
@@ -309,6 +329,13 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
     };
   }, [isLoggedIn, tiktokUsername]);
 
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ type: 'DISCONNECT' }));
+      wsRef.current.close();
+    }
+  }, []);
+
   return {
     users,
     currentWord: currentLevel,
@@ -321,5 +348,6 @@ export function useTikTokLive(isLoggedIn: boolean = true, tiktokUsername: string
     lastWinner,
     isLoadingNext,
     connectionStatus,
+    disconnect
   };
 }
